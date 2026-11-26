@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Хрестики-нулики: Король гори</title>
+  <style>
+    * { box-sizing: border-box; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+    body { background: #121212; color: #f0f0f0; display: flex; flex-direction: column; align-items: center; padding: 20px; margin: 0; }
+    h1 { margin-bottom: 10px; color: #ffca28; text-align: center; }
+    
+    /* Екран входу */
+    #login-screen { background: #1e1e1e; padding: 25px; border-radius: 12px; text-align: center; margin-top: 40px; box-shadow: 0 4px 15px rgba(0,0,0,0.5); }
+    #nickname-input { padding: 10px 15px; font-size: 16px; border-radius: 6px; border: 1px solid #444; background: #2c2c2c; color: #fff; outline: none; }
+    #join-btn { padding: 10px 20px; font-size: 16px; border-radius: 6px; border: none; background: #ffca28; color: #121212; font-weight: bold; cursor: pointer; margin-left: 8px; }
+    #join-btn:hover { background: #ffd54f; }
+
+    /* Основний контейнер */
+    #game-container { display: none; width: 100%; max-width: 850px; gap: 25px; flex-wrap: wrap; justify-content: center; margin-top: 15px; }
+    .panel { background: #1e1e1e; padding: 20px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.4); }
+    .game-area { flex: 1; min-width: 310px; display: flex; flex-direction: column; align-items: center; }
+    .side-area { width: 300px; display: flex; flex-direction: column; gap: 20px; }
+
+    /* Інформація про гравців та таймер */
+    .players-bar { display: flex; justify-content: space-between; width: 100%; margin-bottom: 15px; gap: 10px; }
+    .player-card { flex: 1; background: #2a2a2a; padding: 10px; border-radius: 8px; text-align: center; border: 2px solid transparent; }
+    .player-card.active { border-color: #ffca28; background: #332e1e; }
+    .streak { font-size: 12px; color: #ffca28; margin-top: 4px; }
+
+    #timer-box { font-size: 20px; font-weight: bold; margin-bottom: 10px; color: #4caf50; }
+    #timer-box.danger { color: #f44336; animation: pulse 0.8s infinite; }
+    @keyframes pulse { 0% { transform: scale(1); } 50% { transform: scale(1.08); } 100% { transform: scale(1); } }
+
+    #status-msg { min-height: 24px; margin-bottom: 15px; font-weight: 500; color: #90caf9; text-align: center; }
+
+    /* Ігрове поле */
+    .board { display: grid; grid-template-columns: repeat(3, 95px); grid-template-rows: repeat(3, 95px); gap: 8px; }
+    .cell { background: #2c2c2c; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 48px; font-weight: bold; cursor: pointer; user-select: none; transition: background 0.2s; }
+    .cell:hover { background: #383838; }
+    .cell.X { color: #ef5350; }
+    .cell.O { color: #42a5f5; }
+
+    /* Черга та Рекорди */
+    h3 { margin: 0 0 12px 0; font-size: 16px; border-bottom: 1px solid #333; padding-bottom: 8px; color: #ffca28; }
+    ul { list-style: none; padding: 0; margin: 0; }
+    li { padding: 6px 0; border-bottom: 1px solid #2a2a2a; font-size: 14px; display: flex; justify-content: space-between; }
+    li:last-child { border-bottom: none; }
+    .badge { background: #333; padding: 2px 8px; border-radius: 10px; font-size: 12px; }
+  </style>
+</head>
+<body>
+
+  <h1>👑 Король гори: Хрестики-нулики</h1>
+
+    <div id="login-screen">
+    <p>Введіть ваше ім'я, щоб увійти в чергу:</p>
+    <input type="text" id="nickname-input" placeholder="Ваш нікнейм..." maxlength="15" />
+    <button id="join-btn">Грати</button>
+    <div id="login-error" style="color: #ef5350; margin-top: 10px; font-size: 14px; min-height: 20px;"></div>
+  </div>
+
+
+  <div id="game-container">
+    <div class="panel game-area">
+      <div class="players-bar">
+        <div class="player-card" id="card-X">
+          <div>❌ <strong id="name-X">Очікування...</strong></div>
+          <div class="streak" id="streak-X">Серія: 0</div>
+        </div>
+        <div class="player-card" id="card-O">
+          <div>⭕ <strong id="name-O">Очікування...</strong></div>
+          <div class="streak" id="streak-O">Серія: 0</div>
+        </div>
+      </div>
+
+      <div id="timer-box">Час на хід: <span id="timer-val">15</span> с</div>
+      <div id="status-msg">Підключення...</div>
+
+      <div class="board" id="board">
+        <div class="cell" data-index="0"></div>
+        <div class="cell" data-index="1"></div>
+        <div class="cell" data-index="2"></div>
+        <div class="cell" data-index="3"></div>
+        <div class="cell" data-index="4"></div>
+        <div class="cell" data-index="5"></div>
+        <div class="cell" data-index="6"></div>
+        <div class="cell" data-index="7"></div>
+        <div class="cell" data-index="8"></div>
+      </div>
+    </div>
+
+    <div class="side-area">
+      <div class="panel">
+        <h3>🏆 Таблиця рекордів</h3>
+        <ul id="leaderboard-list"></ul>
+      </div>
+
+      <div class="panel">
+        <h3>⏳ Черга гравців (<span id="queue-count">0</span>)</h3>
+        <ul id="queue-list"></ul>
+      </div>
+    </div>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script>
+    const socket = io();
+    let myId = null;
+
+    const loginScreen = document.getElementById('login-screen');
+    const gameContainer = document.getElementById('game-container');
+    const nicknameInput = document.getElementById('nickname-input');
+    const joinBtn = document.getElementById('join-btn');
+    const cells = document.querySelectorAll('.cell');
+    const timerBox = document.getElementById('timer-box');
+    const timerVal = document.getElementById('timer-val');
+    const statusMsg = document.getElementById('status-msg');
+
+    socket.on('connect', () => { myId = socket.id; });
+
+        const loginError = document.getElementById('login-error');
+
+    function joinGame() {
+      const name = nicknameInput.value.trim();
+      if (!name) {
+        loginError.textContent = 'Будь ласка, введіть нікнейм!';
+        return;
+      }
+      loginError.textContent = '';
+      socket.emit('join', name);
+    }
+
+    // Якщо сервер відхилив нікнейм
+    socket.on('join_error', (msg) => {
+      loginError.textContent = msg;
+    });
+
+    // Якщо сервер схвалив нікнейм — відкриваємо гру
+    socket.on('join_success', () => {
+      loginScreen.style.display = 'none';
+      gameContainer.style.display = 'flex';
+    });
+
+
+    joinBtn.addEventListener('click', joinGame);
+    nicknameInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') joinGame(); });
+
+    cells.forEach(cell => {
+      cell.addEventListener('click', () => {
+        const index = cell.getAttribute('data-index');
+        socket.emit('move', Number(index));
+      });
+    });
+
+    socket.on('timer', (seconds) => {
+      timerVal.textContent = seconds;
+      if (seconds <= 5) {
+        timerBox.classList.add('danger');
+      } else {
+        timerBox.classList.remove('danger');
+      }
+    });
+
+    socket.on('state', (state) => {
+      // Оновлення поля
+      state.board.forEach((val, idx) => {
+        cells[idx].textContent = val || '';
+        cells[idx].className = 'cell' + (val ? ` ${val}` : '');
+      });
+
+      // Картки гравців
+      document.getElementById('name-X').textContent = state.players.X ? state.players.X.name : 'Очікування...';
+      document.getElementById('streak-X').textContent = `Серія перемог: ${state.players.X ? state.players.X.streak : 0}`;
+      
+      document.getElementById('name-O').textContent = state.players.O ? state.players.O.name : 'Очікування...';
+      document.getElementById('streak-O').textContent = `Серія перемог: ${state.players.O ? state.players.O.streak : 0}`;
+
+      document.getElementById('card-X').classList.toggle('active', state.gameActive && state.currentTurn === 'X');
+      document.getElementById('card-O').classList.toggle('active', state.gameActive && state.currentTurn === 'O');
+
+      // Таймер
+      timerVal.textContent = state.timeLeft;
+      timerBox.style.visibility = state.gameActive ? 'visible' : 'hidden';
+
+      // Повідомлення статусу
+      if (state.message) {
+        statusMsg.textContent = state.message;
+      } else if (state.gameActive) {
+        const activePlayer = state.players[state.currentTurn];
+        const isMyTurn = activePlayer?.id === myId;
+        statusMsg.textContent = isMyTurn ? '🔥 Ваш хід!' : `Хід гравця: ${activePlayer?.name}`;
+      }
+
+      // Черга
+      const queueList = document.getElementById('queue-list');
+      document.getElementById('queue-count').textContent = state.queue.length;
+      queueList.innerHTML = state.queue.length 
+        ? state.queue.map((p, i) => `<li><span>#${i + 1} ${p.name}</span></li>`).join('')
+        : '<li><span style="color:#777">Черга порожня</span></li>';
+
+      // Таблиця рекордів
+      const lbList = document.getElementById('leaderboard-list');
+      lbList.innerHTML = state.leaderboard.length
+        ? state.leaderboard.map((entry, i) => `
+            <li>
+              <span>${i + 1}. ${entry.name}</span>
+              <span class="badge">👑 ${entry.bestStreak} | Всього: ${entry.wins}</span>
+            </li>
+          `).join('')
+        : '<li><span style="color:#777">Поки немає рекордів</span></li>';
+    });
+  </script>
+</body>
+</html>
