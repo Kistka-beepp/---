@@ -1,3 +1,4 @@
+
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
@@ -11,6 +12,7 @@ app.use(express.static('public'));
 const TURN_TIME_LIMIT = 15; // Час на хід у секундах
 
 let board = Array(9).fill(null);
+let movesHistory = { X: [], O: [] }; // Історія ходів для зникнення 4-ї фігури
 let players = { X: null, O: null }; // { id, name, streak }
 let queue = []; // [{ id, name }]
 let currentTurn = 'X';
@@ -69,6 +71,11 @@ function startTimer() {
   }, 1000);
 }
 
+function resetBoardState() {
+  board = Array(9).fill(null);
+  movesHistory = { X: [], O: [] };
+}
+
 function assignPlayers() {
   if (!players.X && queue.length > 0) {
     const next = queue.shift();
@@ -81,14 +88,14 @@ function assignPlayers() {
 
   if (players.X && players.O) {
     if (!gameActive) {
-      board = Array(9).fill(null);
+      resetBoardState();
       currentTurn = 'X';
       gameActive = true;
       startTimer();
     }
   } else {
     gameActive = false;
-    board = Array(9).fill(null);
+    resetBoardState();
     stopTimer();
   }
 }
@@ -96,6 +103,7 @@ function assignPlayers() {
 function broadcastState(message = '') {
   io.emit('state', {
     board,
+    movesHistory,
     players,
     queue,
     currentTurn,
@@ -126,6 +134,7 @@ function handleRoundEnd(winnerSymbol, customMessage) {
       queue.push({ id: loser.id, name: loser.name });
       players[loserSymbol] = null;
     }
+    resetBoardState();
     assignPlayers();
     broadcastState(gameActive ? 'Новий раунд розпочато!' : 'Очікування суперника...');
   }, 2500);
@@ -138,18 +147,17 @@ function checkWinner() {
       return board[a];
     }
   }
-  return board.includes(null) ? null : 'DRAW';
+  return null;
 }
 
 io.on('connection', (socket) => {
-  // Надсилаємо актуальний стан одразу при підключенні (щоб бачити таблицю рекордів)
   socket.emit('state', {
-    board, players, queue, currentTurn, gameActive, timeLeft,
+    board, movesHistory, players, queue, currentTurn, gameActive, timeLeft,
     leaderboard: getSortedLeaderboard(),
     message: ''
   });
 
-    socket.on('join', (rawName) => {
+  socket.on('join', (rawName) => {
     const cleanName = (rawName || '').trim().slice(0, 15);
     
     if (!cleanName) {
@@ -157,18 +165,15 @@ io.on('connection', (socket) => {
       return;
     }
 
-    // Перевірка, чи це вікно вже у грі або в черзі
     const alreadyIn = players.X?.id === socket.id || players.O?.id === socket.id || queue.some(p => p.id === socket.id);
     if (alreadyIn) return;
 
-    // Збираємо всі зайняті зараз імена (у нижньому регістрі)
     const activeNames = [
       players.X?.name,
       players.O?.name,
       ...queue.map(p => p.name)
     ].filter(Boolean).map(name => name.toLowerCase());
 
-    // Якщо таке ім'я вже є онлайн — відхиляємо вхід
     if (activeNames.includes(cleanName.toLowerCase())) {
       socket.emit('join_error', `Нікнейм "${cleanName}" вже зайнятий! Оберіть інший.`);
       return;
@@ -179,36 +184,29 @@ io.on('connection', (socket) => {
     }
 
     queue.push({ id: socket.id, name: cleanName });
-    socket.emit('join_success'); // Підтверджуємо успішний вхід
+    socket.emit('join_success');
     assignPlayers();
     broadcastState(`${cleanName} приєднався до гри!`);
   });
-
 
   socket.on('move', (index) => {
     if (!gameActive || board[index] !== null) return;
     if (players[currentTurn]?.id !== socket.id) return;
 
+    // Якщо у гравця вже є 3 фігури на полі — найстаріша зникає
+    if (movesHistory[currentTurn].length >= 3) {
+      const oldestIndex = movesHistory[currentTurn].shift();
+      board[oldestIndex] = null;
+    }
+
     board[index] = currentTurn;
+    movesHistory[currentTurn].push(index);
+
     const result = checkWinner();
 
     if (result === 'X' || result === 'O') {
       const winnerName = players[result].name;
       handleRoundEnd(result, `Переміг ${winnerName} (${result})!`);
-    } else if (result === 'DRAW') {
-      gameActive = false;
-      stopTimer();
-      broadcastState('Нічия! Обидва гравці залишаються за столом.');
-
-      setTimeout(() => {
-        if (players.X && players.O) {
-          board = Array(9).fill(null);
-          currentTurn = currentTurn === 'X' ? 'O' : 'X';
-          gameActive = true;
-          startTimer();
-          broadcastState('Новий раунд після нічиєї!');
-        }
-      }, 2500);
     } else {
       currentTurn = currentTurn === 'X' ? 'O' : 'X';
       startTimer();
@@ -224,11 +222,13 @@ io.on('connection', (socket) => {
       players.X = null;
       gameActive = false;
       stopTimer();
+      resetBoardState();
     } else if (players.O?.id === socket.id) {
       leftName = players.O.name;
       players.O = null;
       gameActive = false;
       stopTimer();
+      resetBoardState();
     } else {
       const idx = queue.findIndex(p => p.id === socket.id);
       if (idx !== -1) {
@@ -248,4 +248,3 @@ const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
   console.log(`Сервер запущено на порту ${PORT}`);
 });
-

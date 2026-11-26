@@ -3,7 +3,14 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Хрестики-нулики: Король гори</title>
+  
+  <!-- ПІДТВЕРДЖЕННЯ ПРАВ ДЛЯ GOOGLE SEARCH CONSOLE -->
+  <meta name="google-site-verification" content="7JQFfrTNBPxcsZSC4sCEBW9KSaKgOh9TB-fqf-1fBjQ" />
+  
+  <!-- ОПИС САЙТУ ДЛЯ ПОШУКУ GOOGLE -->
+  <meta name="description" content="Онлайн гра Нескінченні Хрестики-нулики у режимі Король гори з живою чергою, таймером на хід та таблицею рекордів." />
+  <title>Король гори: Нескінченні Хрестики-нулики онлайн</title>
+
   <style>
     * { box-sizing: border-box; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
     body { background: #121212; color: #f0f0f0; display: flex; flex-direction: column; align-items: center; padding: 20px; margin: 0; }
@@ -14,6 +21,7 @@
     #nickname-input { padding: 10px 15px; font-size: 16px; border-radius: 6px; border: 1px solid #444; background: #2c2c2c; color: #fff; outline: none; }
     #join-btn { padding: 10px 20px; font-size: 16px; border-radius: 6px; border: none; background: #ffca28; color: #121212; font-weight: bold; cursor: pointer; margin-left: 8px; }
     #join-btn:hover { background: #ffd54f; }
+    #login-error { color: #ef5350; margin-top: 10px; font-size: 14px; min-height: 20px; }
 
     /* Основний контейнер */
     #game-container { display: none; width: 100%; max-width: 850px; gap: 25px; flex-wrap: wrap; justify-content: center; margin-top: 15px; }
@@ -35,10 +43,11 @@
 
     /* Ігрове поле */
     .board { display: grid; grid-template-columns: repeat(3, 95px); grid-template-rows: repeat(3, 95px); gap: 8px; }
-    .cell { background: #2c2c2c; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 48px; font-weight: bold; cursor: pointer; user-select: none; transition: background 0.2s; }
+    .cell { background: #2c2c2c; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 48px; font-weight: bold; cursor: pointer; user-select: none; transition: background 0.2s, opacity 0.2s; }
     .cell:hover { background: #383838; }
     .cell.X { color: #ef5350; }
     .cell.O { color: #42a5f5; }
+    .cell.fading { opacity: 0.35; }
 
     /* Черга та Рекорди */
     h3 { margin: 0 0 12px 0; font-size: 16px; border-bottom: 1px solid #333; padding-bottom: 8px; color: #ffca28; }
@@ -52,13 +61,12 @@
 
   <h1>👑 Король гори: Хрестики-нулики</h1>
 
-    <div id="login-screen">
+  <div id="login-screen">
     <p>Введіть ваше ім'я, щоб увійти в чергу:</p>
     <input type="text" id="nickname-input" placeholder="Ваш нікнейм..." maxlength="15" />
     <button id="join-btn">Грати</button>
-    <div id="login-error" style="color: #ef5350; margin-top: 10px; font-size: 14px; min-height: 20px;"></div>
+    <div id="login-error"></div>
   </div>
-
 
   <div id="game-container">
     <div class="panel game-area">
@@ -87,6 +95,9 @@
         <div class="cell" data-index="7"></div>
         <div class="cell" data-index="8"></div>
       </div>
+      <p style="font-size: 12px; color: #777; margin-top: 12px; text-align: center;">
+        Правило: максимум 3 фігури на гравця. 4-й хід видаляє 1-й (напівпрозора клітинка зникне наступною).
+      </p>
     </div>
 
     <div class="side-area">
@@ -111,14 +122,13 @@
     const gameContainer = document.getElementById('game-container');
     const nicknameInput = document.getElementById('nickname-input');
     const joinBtn = document.getElementById('join-btn');
+    const loginError = document.getElementById('login-error');
     const cells = document.querySelectorAll('.cell');
     const timerBox = document.getElementById('timer-box');
     const timerVal = document.getElementById('timer-val');
     const statusMsg = document.getElementById('status-msg');
 
     socket.on('connect', () => { myId = socket.id; });
-
-        const loginError = document.getElementById('login-error');
 
     function joinGame() {
       const name = nicknameInput.value.trim();
@@ -130,17 +140,14 @@
       socket.emit('join', name);
     }
 
-    // Якщо сервер відхилив нікнейм
     socket.on('join_error', (msg) => {
       loginError.textContent = msg;
     });
 
-    // Якщо сервер схвалив нікнейм — відкриваємо гру
     socket.on('join_success', () => {
       loginScreen.style.display = 'none';
       gameContainer.style.display = 'flex';
     });
-
 
     joinBtn.addEventListener('click', joinGame);
     nicknameInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') joinGame(); });
@@ -162,10 +169,16 @@
     });
 
     socket.on('state', (state) => {
+      // Визначаємо клітинку, яка зникне при наступному ході поточного гравця
+      let fadingIndex = -1;
+      if (state.gameActive && state.movesHistory && state.movesHistory[state.currentTurn]?.length === 3) {
+        fadingIndex = state.movesHistory[state.currentTurn][0];
+      }
+
       // Оновлення поля
       state.board.forEach((val, idx) => {
         cells[idx].textContent = val || '';
-        cells[idx].className = 'cell' + (val ? ` ${val}` : '');
+        cells[idx].className = 'cell' + (val ? ` ${val}` : '') + (idx === fadingIndex ? ' fading' : '');
       });
 
       // Картки гравців
